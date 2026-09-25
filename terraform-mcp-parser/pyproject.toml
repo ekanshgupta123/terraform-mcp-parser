@@ -8,8 +8,12 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=1.8.0",
+    "chromadb>=1.5.9",
     "mcp[cli]>=2.2.0",
+    "python-dotenv>=1.2.3",
     "python-hcl2>=8.1.4",
+    "sentence-transformers>=6.1.0",
 ]
 
 [project.scripts]
