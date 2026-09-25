@@ -1,0 +1,42 @@
+{
+  "terraform-aws-s3-bucket": {
+    "key_inputs": [
+      "bucket: name of the S3 bucket to create",
+      "acl: canned ACL applied to the bucket (defaults to private)",
+      "server_side_encryption_configuration: encryption-at-rest settings for bucket objects",
+      "versioning: versioning configuration for the bucket",
+      "lifecycle_rule: lifecycle rules for object expiration and transitions",
+      "logging: access logging configuration targeting another bucket",
+      "block_public_acls / block_public_policy / ignore_public_acls / restrict_public_buckets: public-access block settings",
+      "attach_policy: whether to attach a bucket policy, with policy supplied as JSON",
+      "object_ownership: controls object ownership and ACL behavior (BucketOwnerEnforced disables ACLs)",
+      "tags: mapping of tags to assign to the bucket"
+    ],
+    "key_outputs": [
+      "s3_bucket_id: the name (ID) of the created bucket",
+      "s3_bucket_arn: the ARN of the bucket",
+      "s3_bucket_bucket_domain_name: bucket domain name for endpoints",
+      "s3_bucket_region: AWS region of the bucket"
+    ],
+    "summary": "Provisions an S3 bucket on AWS with nearly every feature the provider supports, including encryption at rest, versioning, lifecycle rules, logging, and fine-grained public-access blocking. Use it when you need a production-grade bucket without hand-rolling dozens of aws_s3_* resources.",
+    "typical_use_case": "A team needs a secure, encrypted S3 bucket for application data with versioning and access logging turned on."
+  },
+  "terraform-aws-security-group": {
+    "key_inputs": [
+      "name: name of the security group",
+      "vpc_id: VPC in which to create the security group",
+      "ingress_rules / ingress_with_cidr_blocks: predefined or custom inbound rules",
+      "egress_rules / egress_with_cidr_blocks: predefined or custom outbound rules",
+      "ingress_cidr_blocks / egress_cidr_blocks: CIDR ranges allowed in or out",
+      "use_name_prefix: whether to use name as a prefix for unique naming",
+      "tags: mapping of tags to assign to the security group"
+    ],
+    "key_outputs": [
+      "security_group_id: ID of the created security group",
+      "security_group_arn: ARN of the security group",
+      "security_group_name: name of the security group"
+    ],
+    "summary": "Creates an EC2 security group inside a VPC with configurable ingress and egress rules, including support for computed rule sets and exclusive rule management. Use it to define network access boundaries for instances and services without writing raw aws_security_group resources.",
+    "typical_use_case": "A service needs a security group allowing HTTPS inbound from the internet and all outbound traffic within its VPC."
+  }
+}
