@@ -11,3 +11,8 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Eval harness artifacts (generated; recreate with eval/generate_corpus.py)
+terraform-mcp-parser/eval/corpus/
+terraform-mcp-parser/eval/.chroma_eval/
+terraform-mcp-parser/eval/results.json
