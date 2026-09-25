@@ -9,6 +9,7 @@ than raw variable dumps do.
 Requires ANTHROPIC_API_KEY in the environment (see .env.example).
 """
 
+from email.mime import text
 import json
 import os
 import re
@@ -90,14 +91,15 @@ def summarize_module(parsed_module: dict, model: str | None = None) -> dict:
 
     response = client.messages.create(
         model=model,
-        max_tokens=500,
+        max_tokens=1000,
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
             "content": json.dumps(build_summary_input(parsed_module), indent=2),
         }],
     )
-    return json.loads(_strip_fences(response.content[0].text))
+    text = "".join(b.text for b in response.content if b.type == "text")
+    return json.loads(_strip_fences(text))
 
 
 if __name__ == "__main__":
