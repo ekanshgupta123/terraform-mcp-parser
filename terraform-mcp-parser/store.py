@@ -10,9 +10,11 @@ typical use case):
                commit_sha, and the FULL parsed module JSON (untrimmed)
                so get_module_details can return it
 
-Search scores each module by its best-matching chunk ("best chunk
-wins"), which keeps specific signals -- e.g. a single use-case
-sentence -- from drowning in the whole-document average.
+Search scores each module by the average of its SCORE_TOP_K closest
+chunks, which keeps specific signals -- e.g. a single use-case
+sentence -- from drowning in the whole-document average, while
+requiring a module to match on more than one aspect before a single
+generic sentence can carry it.
 
 ChromaDB runs embedded with zero infrastructure -- data lives in
 CHROMA_PATH (default ./chroma_db). If you outgrow it, this is the layer
@@ -28,8 +30,14 @@ COLLECTION_NAME = "terraform_modules"
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 
 # Search over-fetches this many chunk hits per requested module, so that
-# best-chunk-wins grouping still sees every module's closest chunk.
+# top-K chunk scoring still sees every module's closest chunks.
 _CHUNK_OVERFETCH = 10
+
+# How many of a module's closest chunks are averaged into its score.
+# 1 = pure best-chunk-wins (old behaviour). 2 means a module has to match
+# on two aspects, so one generic use-case sentence ("firewall rules for
+# EC2 instances") can't carry a module on its own.
+SCORE_TOP_K = int(os.environ.get("SCORE_TOP_K", "2"))
 
 
 def get_collection(path: str | None = None):
@@ -78,13 +86,13 @@ def upsert_module(collection,
 
 def search_modules_store(collection, query_embedding: list[float],
                          n_results: int = 5) -> list[dict]:
-    """Best-chunk-wins semantic search.
+    """Top-K chunk-average semantic search.
 
-    Over-fetches chunk hits, keeps each module's closest chunk, and
-    returns the top modules by that best-chunk distance. Each hit
-    carries the matched chunk's text and kind so callers can see *why*
-    it matched. Also reads old one-record-per-module indexes (their
-    records simply behave as a single "summary" chunk).
+    Over-fetches chunk hits, keeps each module's SCORE_TOP_K closest
+    chunks, and returns the top modules by that averaged distance. Each
+    hit carries the matched chunk's text and kind so callers can see
+    *why* it matched. Also reads old one-record-per-module indexes
+    (their records simply behave as a single "summary" chunk).
     """
     total = collection.count()
     if total == 0:
@@ -95,18 +103,26 @@ def search_modules_store(collection, query_embedding: list[float],
         include=["documents", "metadatas", "distances"],
     )
     best: dict[str, dict] = {}
+    dists: dict[str, list[float]] = {}
     for i in range(len(results["ids"][0])):
         meta = results["metadatas"][0][i]
         name = meta["module_name"]
         dist = results["distances"][0][i]
-        if name not in best or dist < best[name]["distance"]:
+        dists.setdefault(name, []).append(dist)
+        if name not in best or dist < best[name]["best_chunk_distance"]:
             best[name] = {
                 "module_name": name,
                 "summary": results["documents"][0][i],
                 "matched_chunk": meta.get("chunk_kind", "summary"),
                 "source_path": meta["source_path"],
-                "distance": dist,
+                "best_chunk_distance": dist,
             }
+    for name, hit in best.items():
+        top = sorted(dists[name])[:SCORE_TOP_K]
+        # A module with fewer fetched chunks than K pads with its worst
+        # fetched one, so sparse matches aren't rewarded for being sparse.
+        top += [top[-1]] * (SCORE_TOP_K - len(top))
+        hit["distance"] = sum(top) / len(top)
     return sorted(best.values(), key=lambda h: h["distance"])[:n_results]
 
 

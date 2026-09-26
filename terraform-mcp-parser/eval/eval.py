@@ -125,6 +125,8 @@ def evaluate(collection) -> dict:
             "expected": sorted(expected),
             "got_at_1": got_names[0] if got_names else None,
             "got_at_1_distance": round(hits[0]["distance"], 3) if hits else None,
+            "got_at_1_chunk": (f'[{hits[0]["matched_chunk"]}] {hits[0]["summary"]}'
+                               if hits else None),
             "top_3": got_names[:3],
             "rank": rank,
             "recall_at_1": rank == 1,
@@ -199,6 +201,8 @@ def print_report(results: dict) -> None:
             status = (f"rank #{tr} -- TRAP IN TOP 3" if tr and tr <= 3
                       else (f"rank #{tr} (outside top-3)" if tr else "not in top-5"))
             print(f"         trap '{r['trap']}': {status}")
+        if not r["recall_at_1"] and r.get("got_at_1_chunk"):
+            print(f"         matched on: {r['got_at_1_chunk'][:160]}")
         if not r["recall_at_3"]:
             print(f"         top3: {', '.join(r['top_3'])}")
     print(bar)

@@ -96,7 +96,7 @@ def parse_resource_types(module_path: str) -> list[str]:
     return resource_types
 
 
-def parse_readme(module_path: str, max_chars: int = 4000) -> str:
+def parse_readme(module_path: str, max_chars: int = 12000) -> str:
     """Return the module's README text as-is (human-written prose about
     intent -- no parsing needed). Empty string if there isn't one."""
     for name in ("README.md", "readme.md"):

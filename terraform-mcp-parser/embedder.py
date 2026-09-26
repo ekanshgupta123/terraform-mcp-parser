@@ -64,6 +64,10 @@ def summary_to_chunks(summary: dict) -> list[tuple[str, str]]:
     for uc in use_cases:
         if uc:
             chunks.append(("use_case", "Typical use case: " + uc))
+    if summary.get("distinguishing_features"):
+        chunks.append(("features",
+                       "Distinguishing features: "
+                       + "; ".join(summary["distinguishing_features"])))
     if not chunks:
         raise ValueError("summary produced no embeddable chunks")
     return chunks
