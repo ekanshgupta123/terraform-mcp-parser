@@ -97,7 +97,7 @@ def summarize_module(parsed_module: dict, model: str | None = None) -> dict:
 
     response = client.messages.create(
         model=model,
-        max_tokens=1000,
+        max_tokens=2000,
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
