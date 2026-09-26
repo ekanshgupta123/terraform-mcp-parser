@@ -31,7 +31,7 @@ Output strict JSON, no markdown fences, no preamble:
     What does this provision and why would someone use it?",
   "key_inputs": ["variable_name: what it controls, in plain English"],
   "key_outputs": ["output_name: what it exposes"],
-  "typical_use_case": "one sentence scenario"
+  "typical_use_cases": ["2-3 one-sentence scenarios"]
 }
 Rules:
 - Never just restate variable names as the summary.
@@ -39,13 +39,19 @@ Rules:
   ("provisions an encrypted private database" not
   "creates aws_db_instance with storage_encrypted=true").
 - If the README already states intent clearly, lean on it rather than
-  re-deriving from raw resource types."""
+  re-deriving from raw resource types.
+- Cover the resource type's canonical real-world uses among the use
+  cases (e.g. an S3 bucket module: static website hosting, log
+  archival, Terraform state storage; a security group: firewall rules
+  for EC2/RDS). Only include uses supported by the README, variables,
+  or resource types -- don't invent any."""
 
 # Variables whose descriptions mention these tend to describe what the
 # module is *for* (capability), rather than generic sizing/naming knobs.
 CAPABILITY_KEYWORDS = [
     "encrypt", "public", "private", "polic", "secur", "block",
     "replicat", "lifecycle", "log", "version", "access", "lock",
+    "website", "host",
 ]
 
 
