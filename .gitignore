@@ -16,3 +16,7 @@ __pycache__/
 terraform-mcp-parser/eval/corpus/
 terraform-mcp-parser/eval/.chroma_eval/
 terraform-mcp-parser/eval/results.json
+# Real-world eval artifacts (generated; recreate with eval/real_world/fetch_corpus.py)
+terraform-mcp-parser/eval/real_world/corpus/
+terraform-mcp-parser/eval/real_world/.chroma_real/
+terraform-mcp-parser/eval/real_world/results.json

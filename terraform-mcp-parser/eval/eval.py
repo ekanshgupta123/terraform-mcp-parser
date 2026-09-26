@@ -37,21 +37,28 @@ if not os.environ.get("ANTHROPIC_API_KEY", "").strip():
         "Then re-run:  uv run eval/eval.py"
     )
 
-EVAL_DIR = Path(__file__).resolve().parent
-CORPUS_DIR = EVAL_DIR / "corpus"
-EVAL_CHROMA_PATH = EVAL_DIR / ".chroma_eval"
-EVAL_COLLECTION = "terraform_modules_eval"
+PKG_DIR = Path(__file__).resolve().parent
+# EVAL_DIR is the data dir (corpus/, chroma db, results.json). It coincides
+# with PKG_DIR for the synthetic eval, but eval/real_world/eval_real.py
+# overrides it via env so one codebase serves both evals.
+EVAL_DIR = Path(os.environ.get("EVAL_DIR", str(PKG_DIR)))
+CORPUS_DIR = Path(os.environ.get("EVAL_CORPUS_DIR", str(EVAL_DIR / "corpus")))
+EVAL_CHROMA_PATH = Path(os.environ.get("EVAL_CHROMA_PATH",
+                                       str(EVAL_DIR / ".chroma_eval")))
+EVAL_COLLECTION = os.environ.get("EVAL_COLLECTION", "terraform_modules_eval")
+EVAL_TITLE = os.environ.get("EVAL_TITLE", "messy-module retrieval")
 N_RESULTS = 5
 
 # Safety: even though we build our own collection below, pin CHROMA_PATH
 # before importing store so nothing can accidentally resolve to ./chroma_db.
 os.environ["CHROMA_PATH"] = str(EVAL_CHROMA_PATH)
-assert ".chroma_eval" in os.environ["CHROMA_PATH"], "eval chroma path guard"
+assert Path(os.environ["CHROMA_PATH"]).name != "chroma_db", \
+    "eval chroma path guard: must not point at the production chroma_db"
 
 # terraform-parser.py has a hyphen; the sibling modules live one dir up.
-sys.path.insert(0, str(EVAL_DIR.parent))
+sys.path.insert(0, str(PKG_DIR.parent))
 _spec = importlib.util.spec_from_file_location(
-    "terraform_parser", EVAL_DIR.parent / "terraform-parser.py")
+    "terraform_parser", PKG_DIR.parent / "terraform-parser.py")
 tp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tp)
 
@@ -69,7 +76,8 @@ def build_eval_index() -> None:
     if not module_dirs:
         sys.exit(
             f"ERROR: no modules found in {CORPUS_DIR}.\n"
-            "Run the generator first:  uv run eval/generate_corpus.py"
+            "Populate it first: synthetic eval -> uv run eval/generate_corpus.py; "
+            "real-world eval -> uv run eval/real_world/fetch_corpus.py"
         )
 
     client = chromadb.PersistentClient(path=str(EVAL_CHROMA_PATH))
@@ -161,8 +169,9 @@ def print_report(results: dict) -> None:
     s = summarize(results["rows"])
     bar = "=" * 64
     print(bar)
-    print("EVAL REPORT -- messy-module retrieval")
-    print(f"Modules indexed: 15 | Queries: {s['n']}")
+    print(f"EVAL REPORT -- {EVAL_TITLE}")
+    print(f"Modules indexed: {results.get('module_count', '?')} "
+          f"| Queries: {s['n']}")
     print("-" * 64)
     print(f"Recall@1: {s['recall_at_1']:.3f} "
           f"({sum(r['recall_at_1'] for r in results['rows'])}/{s['n']})")
@@ -198,6 +207,7 @@ def print_report(results: dict) -> None:
 def main() -> None:
     collection = build_eval_index()
     results = evaluate(collection)
+    results["module_count"] = collection.count()
     results["summary"] = summarize(results["rows"])
     out_path = EVAL_DIR / "results.json"
     out_path.write_text(json.dumps(results, indent=2))

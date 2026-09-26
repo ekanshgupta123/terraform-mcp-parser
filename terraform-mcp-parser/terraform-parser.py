@@ -76,20 +76,23 @@ def parse_outputs(module_path: str) -> list[dict]:
 
 def parse_resource_types(module_path: str) -> list[str]:
     """Extract just the resource type names (e.g. 'aws_s3_bucket') from
-    main.tf -- not the full resource bodies, which are noise for search."""
-    main_file = Path(module_path) / "main.tf"
-    if not main_file.exists():
-        return []
-
-    with open(main_file, "r") as f:
-        parsed = hcl2.load(f)
-
+    every *.tf file in the module root -- not the full resource bodies,
+    which are noise for search. Terraform treats all .tf files in a
+    directory as one configuration; main.tf is only a naming convention,
+    and real modules (e.g. jameswoolfenden's) spread resources across
+    files like aws_db_instance.instance.tf."""
     resource_types: list[str] = []
-    for block in parsed.get("resource", []):
-        for raw_type in block:
-            cleaned = _clean(raw_type)
-            if cleaned not in resource_types:
-                resource_types.append(cleaned)
+    for tf_file in sorted(Path(module_path).glob("*.tf")):
+        try:
+            with open(tf_file, "r") as f:
+                parsed = hcl2.load(f)
+        except Exception:
+            continue
+        for block in parsed.get("resource", []):
+            for raw_type in block:
+                cleaned = _clean(raw_type)
+                if cleaned not in resource_types:
+                    resource_types.append(cleaned)
     return resource_types
 
 

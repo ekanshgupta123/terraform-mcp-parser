@@ -1,0 +1,30 @@
+# 20 real community Terraform modules (AWS) for the real-world retrieval eval.
+# Pinned 2026-09-25. fetch_corpus.py clones each with `git clone --depth 1`;
+# the HEAD SHA of each clone is recorded in corpus/<name>/.eval-sha at fetch
+# time for reproducibility.
+#
+# Mix: 9 from terraform-aws-modules/* (clean, canonical), 11 from smaller
+# community authors (cloudposse, clouddrove, mineiros-io, jameswoolfenden,
+# trussworks) -- these tend to be messier, which is what we're testing.
+# Capability overlap is deliberate: 4x object storage, 3x security groups,
+# 3x databases, 2x VPC, 2x EC2, 2x SNS, plus route53, ALB, ElastiCache, logs.
+https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git
+https://github.com/terraform-aws-modules/terraform-aws-security-group.git
+https://github.com/terraform-aws-modules/terraform-aws-rds.git
+https://github.com/terraform-aws-modules/terraform-aws-vpc.git
+https://github.com/terraform-aws-modules/terraform-aws-ec2-instance.git
+https://github.com/terraform-aws-modules/terraform-aws-route53.git
+https://github.com/terraform-aws-modules/terraform-aws-alb.git
+https://github.com/terraform-aws-modules/terraform-aws-sns.git
+https://github.com/terraform-aws-modules/terraform-aws-elasticache.git
+https://github.com/cloudposse/terraform-aws-s3-bucket.git
+https://github.com/cloudposse/terraform-aws-security-group.git
+https://github.com/cloudposse/terraform-aws-rds.git
+https://github.com/cloudposse/terraform-aws-vpc.git
+https://github.com/cloudposse/terraform-aws-ec2-instance.git
+https://github.com/cloudposse/terraform-aws-sns-topic.git
+https://github.com/clouddrove/terraform-aws-s3.git
+https://github.com/clouddrove/terraform-aws-security-group.git
+https://github.com/mineiros-io/terraform-aws-s3-bucket.git
+https://github.com/jameswoolfenden/terraform-aws-rds.git
+https://github.com/trussworks/terraform-aws-logs.git
