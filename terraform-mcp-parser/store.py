@@ -1,11 +1,18 @@
 """Vector store: ChromaDB persistent collection for module summaries.
 
-Each module is one record:
-  - id:        module name
-  - document:  the composed summary text (what similarity search matches on)
-  - embedding: vector of the summary text
-  - metadata:  module_name, source_path, commit_sha, and the FULL parsed
-               module JSON (untrimmed) so get_module_details can return it
+Chunked indexing: each module is stored as several records, one per
+summary chunk (capability summary, key inputs, key outputs, each
+typical use case):
+  - id:        f"{module_name}#chunk-{i}"
+  - document:  the chunk text (what similarity search matches on)
+  - embedding: vector of the chunk text
+  - metadata:  module_name, chunk_index, chunk_kind, source_path,
+               commit_sha, and the FULL parsed module JSON (untrimmed)
+               so get_module_details can return it
+
+Search scores each module by its best-matching chunk ("best chunk
+wins"), which keeps specific signals -- e.g. a single use-case
+sentence -- from drowning in the whole-document average.
 
 ChromaDB runs embedded with zero infrastructure -- data lives in
 CHROMA_PATH (default ./chroma_db). If you outgrow it, this is the layer
@@ -20,6 +27,10 @@ import chromadb
 COLLECTION_NAME = "terraform_modules"
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 
+# Search over-fetches this many chunk hits per requested module, so that
+# best-chunk-wins grouping still sees every module's closest chunk.
+_CHUNK_OVERFETCH = 10
+
 
 def get_collection(path: str | None = None):
     client = chromadb.PersistentClient(path=path or CHROMA_PATH)
@@ -31,48 +42,82 @@ def get_collection(path: str | None = None):
 
 def upsert_module(collection,
                   module_name: str,
-                  summary_text: str,
-                  embedding: list[float],
+                  chunks: list[tuple[str, str]],
+                  embeddings: list[list[float]],
                   full_parsed: dict,
                   source_path: str,
                   commit_sha: str | None = None) -> None:
-    collection.upsert(
-        ids=[module_name],
-        documents=[summary_text],
-        embeddings=[embedding],
-        metadatas=[{
-            "module_name": module_name,
-            "source_path": source_path,
-            "commit_sha": commit_sha or "",
-            # Full parsed JSON stored as a string (Chroma metadata must be
-            # scalar) so get_module_details can return every variable/output.
-            "full_parsed": json.dumps(full_parsed),
-        }],
+    """Index one module as one record per (kind, text) chunk.
+
+    Delete-then-add (not upsert): chunk indexes shift when a summary
+    gains or loses use cases, so stale chunk-N records must go rather
+    than linger under old ids.
+    """
+    if len(chunks) != len(embeddings):
+        raise ValueError("chunks and embeddings must align")
+    collection.delete(where={"module_name": module_name})
+    if not chunks:
+        return
+    metadatas = [{
+        "module_name": module_name,
+        "chunk_index": i,
+        "chunk_kind": kind,
+        "source_path": source_path,
+        "commit_sha": commit_sha or "",
+        # Full parsed JSON stored as a string (Chroma metadata must be
+        # scalar) so get_module_details can return every variable/output.
+        "full_parsed": json.dumps(full_parsed),
+    } for i, (kind, _) in enumerate(chunks)]
+    collection.add(
+        ids=[f"{module_name}#chunk-{i}" for i in range(len(chunks))],
+        documents=[text for _, text in chunks],
+        embeddings=embeddings,
+        metadatas=metadatas,
     )
 
 
 def search_modules_store(collection, query_embedding: list[float],
                          n_results: int = 5) -> list[dict]:
-    """Semantic search. Returns module_name, summary, source_path, distance."""
+    """Best-chunk-wins semantic search.
+
+    Over-fetches chunk hits, keeps each module's closest chunk, and
+    returns the top modules by that best-chunk distance. Each hit
+    carries the matched chunk's text and kind so callers can see *why*
+    it matched. Also reads old one-record-per-module indexes (their
+    records simply behave as a single "summary" chunk).
+    """
+    total = collection.count()
+    if total == 0:
+        return []
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=n_results,
+        n_results=min(total, n_results * _CHUNK_OVERFETCH),
         include=["documents", "metadatas", "distances"],
     )
-    hits = []
+    best: dict[str, dict] = {}
     for i in range(len(results["ids"][0])):
-        hits.append({
-            "module_name": results["metadatas"][0][i]["module_name"],
-            "summary": results["documents"][0][i],
-            "source_path": results["metadatas"][0][i]["source_path"],
-            "distance": results["distances"][0][i],
-        })
-    return hits
+        meta = results["metadatas"][0][i]
+        name = meta["module_name"]
+        dist = results["distances"][0][i]
+        if name not in best or dist < best[name]["distance"]:
+            best[name] = {
+                "module_name": name,
+                "summary": results["documents"][0][i],
+                "matched_chunk": meta.get("chunk_kind", "summary"),
+                "source_path": meta["source_path"],
+                "distance": dist,
+            }
+    return sorted(best.values(), key=lambda h: h["distance"])[:n_results]
 
 
 def get_module_details_store(collection, module_name: str) -> dict | None:
-    """Return the full parsed JSON for one module, or None if unknown."""
-    results = collection.get(ids=[module_name], include=["metadatas"])
+    """Return the full parsed JSON for one module, or None if unknown.
+
+    Looks up by metadata rather than record id, so it works for both
+    the old one-record-per-module index and the new chunked index.
+    """
+    results = collection.get(where={"module_name": module_name},
+                             include=["metadatas"], limit=1)
     if not results["ids"]:
         return None
     return json.loads(results["metadatas"][0]["full_parsed"])

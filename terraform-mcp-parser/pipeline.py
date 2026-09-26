@@ -1,11 +1,15 @@
 """Batch ingestion pipeline: parse -> summarize -> embed -> store.
 
 Run this whenever your modules change. It walks every module directory,
-parses it, summarizes it (LLM), embeds the summary, and upserts it into
-the vector store. Re-running is safe: records are upserted by module
-name, so only changed modules need re-summarizing (though this script
-re-summarizes everything it walks -- point it at changed dirs, or extend
-it with commit-SHA change detection later).
+parses it, summarizes it (LLM), splits the summary into chunks, embeds
+each chunk, and upserts them into the vector store. Retrieval scores a
+module by its best-matching chunk, so a specific use case ("host a
+static website") isn't drowned out by the rest of a long summary.
+
+Re-running is safe: records are replaced per module name, so only
+changed modules need re-summarizing (though this script re-summarizes
+everything it walks -- point it at changed dirs, or extend it with
+commit-SHA change detection later).
 
 Usage:
     uv run pipeline.py [modules_dir]
@@ -35,7 +39,7 @@ tp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tp)
 
 from summarizer import summarize_module  # noqa: E402
-from embedder import embed, summary_to_text  # noqa: E402
+from embedder import embed, summary_to_chunks  # noqa: E402
 from store import get_collection, upsert_module  # noqa: E402
 
 
@@ -61,20 +65,20 @@ def index_module(module_path: Path, collection, summary: dict | None = None) -> 
     else:
         print("  using pre-computed summary")
 
-    summary_text = summary_to_text(summary)
-    print("  embedding ...")
-    vector = embed([summary_text])[0]
+    chunks = summary_to_chunks(summary)
+    print(f"  embedding {len(chunks)} chunks ...")
+    vectors = embed([text for _, text in chunks])
 
     upsert_module(
         collection,
         module_name=parsed["module_name"],
-        summary_text=summary_text,
-        embedding=vector,
+        chunks=chunks,
+        embeddings=vectors,
         full_parsed=parsed,
         source_path=str(module_path),
         commit_sha=git_commit_sha(module_path),
     )
-    print(f"  indexed {parsed['module_name']}: {summary['summary'][:80]}...")
+    print(f"  indexed {parsed['module_name']}: {len(chunks)} chunks")
 
 
 def main() -> None:
@@ -97,10 +101,12 @@ def main() -> None:
         print(f"Loaded pre-computed summaries for: {sorted(fixtures)}")
 
     collection = get_collection()
+    n = 0
     for module_path in module_dirs:
         index_module(module_path, collection,
                      summary=fixtures.get(module_path.name))
-    print(f"\nDone. {collection.count()} module(s) in the index.")
+        n += 1
+    print(f"\nDone. {n} module(s) in the index.")
 
 
 if __name__ == "__main__":

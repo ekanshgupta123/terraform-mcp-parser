@@ -63,7 +63,7 @@ tp = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tp)
 
 from summarizer import summarize_module  # noqa: E402
-from embedder import embed_one, summary_to_text  # noqa: E402
+from embedder import embed, embed_one, summary_to_chunks  # noqa: E402
 from store import upsert_module, search_modules_store  # noqa: E402
 
 import chromadb  # noqa: E402
@@ -93,16 +93,16 @@ def build_eval_index() -> None:
         print(f"  {module_path.name} ...")
         parsed = tp.parse_module(str(module_path))
         summary = summarize_module(parsed)
-        text = summary_to_text(summary)
+        chunks = summary_to_chunks(summary)
         upsert_module(
             collection,
             module_name=parsed["module_name"],
-            summary_text=text,
-            embedding=embed_one(text),
+            chunks=chunks,
+            embeddings=embed([text for _, text in chunks]),
             full_parsed=parsed,
             source_path=str(module_path),
         )
-    print(f"  done. {collection.count()} modules indexed.\n")
+    print(f"  done. {len(module_dirs)} modules indexed.\n")
     return collection
 
 

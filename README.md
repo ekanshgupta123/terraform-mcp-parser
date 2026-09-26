@@ -60,8 +60,12 @@ uv run pipeline.py ../sample-modules
 ```
 
 The pipeline parses each module, summarizes it via the Anthropic API,
-embeds the summary locally, and upserts it into ChromaDB (`./chroma_db`).
-Re-running is safe — records are upserted by module name.
+splits the summary into chunks (capability summary, key inputs/outputs,
+one chunk per typical use case), embeds each chunk locally, and upserts
+them into ChromaDB (`./chroma_db`). Retrieval scores a module by its
+best-matching chunk, so a specific use case isn't drowned out by the
+rest of a long summary. Re-running is safe — records are replaced per
+module name.
 
 `sample-summaries.json` holds hand-written summaries for the sample modules
 so you can exercise the pipeline end to end without spending API calls:
