@@ -5,6 +5,24 @@ This harness answers the project's core strategic question: **does
 a real team's — inconsistent names, missing descriptions, copy-paste
 leftovers, misleading READMEs, overlapping capabilities?**
 
+## The other eval: `tool_eval.py`
+
+`eval/tool_eval.py` checks the other end of the loop -- the HCL that
+`get_usage_example` generates -- against the **local index**
+(`CHROMA_PATH`, built by `pipeline.py`):
+
+```bash
+uv run eval/tool_eval.py
+```
+
+It asserts the snippet parses as HCL, invents no variables, includes every
+required variable, contains no `[{}]` empty-object placeholders, and
+satisfies per-case must-include/must-exclude lists encoding reviewed
+judgments (e.g. website hosting must not suggest the deprecated `acl`).
+Judgments that need a reader rather than a rule -- mutually exclusive
+modes, README-prose noise -- are deliberately not asserted; the tool
+surfaces those candidates and the caller trims them.
+
 ## How to run
 
 From `terraform-mcp-parser/`:

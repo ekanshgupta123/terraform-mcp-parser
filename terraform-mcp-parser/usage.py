@@ -142,9 +142,16 @@ def _parse_type(s: str):
     return node
 
 
-def _render_value(node, level: int, depth: int = 3) -> str:
+def _render_value(node, level: int, depth: int = 4) -> str:
     """Render an example HCL value for a type node. `level` is the indent
-    level of the line the value starts on (2 spaces per level)."""
+    level of the line the value starts on (2 spaces per level).
+
+    `depth` budgets object/map expansions only: list/set/tuple are
+    transparent wrappers, so `list(object({a = object({...})}))` expands
+    fully instead of collapsing the inner object to `{}` two levels
+    down. A spent budget degrades gracefully -- deep lists become `[]`
+    (always type-valid), deep objects become `{}`.
+    """
     kind = node[0]
     if kind == "prim":
         return {"string": '"your-value-here"', "number": "0",
@@ -158,11 +165,11 @@ def _render_value(node, level: int, depth: int = 3) -> str:
         if depth <= 0:
             return "[]"
         if kind == "tuple":
-            inner = ", ".join(_render_value(e, level, depth - 1)
+            inner = ", ".join(_render_value(e, level, depth)
                               for e in node[1])
             return "[" + inner + "]"
         elem = node[1]
-        inner = _render_value(elem, level, depth - 1)
+        inner = _render_value(elem, level, depth)
         if elem[0] == "object":
             # [{ ... }] on the same open line, like hand-written HCL.
             return "[" + inner + "]"
@@ -174,7 +181,7 @@ def _render_value(node, level: int, depth: int = 3) -> str:
     if kind == "map":
         if depth <= 0:
             return "{}"
-        inner = _render_value(node[1], level + 1, depth - 1)
+        inner = _render_value(node[1], level + 1, depth)
         return '{\n' + pad + '  "example-key" = ' + inner + "\n" + pad + "}"
     if kind == "object":
         if depth <= 0 or not node[1]:
@@ -243,6 +250,16 @@ def _summary_mentions(variables: list[dict], summary: str) -> list[dict]:
     return [v for v in variables if _word_pat(v["name"]).search(low)]
 
 
+def _strip_tables(readme: str) -> str:
+    """Drop markdown table rows. Tables are reference listings -- a
+    variable sitting alphabetically next to a keyword in the inputs
+    table is not a semantic relationship. Prose and code examples are
+    where authors show settings that belong together, so only those
+    feed the co-mention signal."""
+    return "\n".join(ln for ln in readme.splitlines()
+                     if not ln.lstrip().startswith("|"))
+
+
 def _readme_related(variables: list[dict], readme: str, use_case: str,
                     window: int = 1200) -> list[dict]:
     """Variables mentioned near use-case keywords in the README. Module
@@ -254,7 +271,7 @@ def _readme_related(variables: list[dict], readme: str, use_case: str,
     keywords = {k for k in _tokens(use_case) if len(k) >= 4}
     if not keywords:
         return []
-    low = readme.lower()
+    low = _strip_tables(readme).lower()
     spans: list[tuple[int, int]] = []
     for kw in keywords:
         start = 0
@@ -270,6 +287,27 @@ def _readme_related(variables: list[dict], readme: str, use_case: str,
             if any(_word_pat(v["name"]).search(low[a:b]) for a, b in spans)]
 
 
+def _is_deprecated(var: dict) -> bool:
+    """The module author marked this variable deprecated (e.g. AWS
+    deprecated S3 ACLs in favor of bucket policies)."""
+    return "deprecat" in (var.get("description") or "").lower()
+
+
+def _deprecation_note(var: dict) -> str:
+    for line in (var.get("description") or "").splitlines():
+        if "deprecat" in line.lower():
+            return line.strip().strip(".")[:110]
+    return "deprecated by the module author"
+
+
+def _conflicts_with(var: dict) -> str | None:
+    """The other variable this one declares a conflict with, if any
+    (e.g. grants: 'Conflicts with `acl`')."""
+    m = re.search(r"conflicts with\s+`([^`]+)`",
+                  var.get("description") or "", re.IGNORECASE)
+    return m.group(1) if m else None
+
+
 def select_variables(variables: list[dict], use_case: str = "",
                      summary: str = "", readme: str = "",
                      max_relevant: int = 10) -> tuple[list[dict], list[dict]]:
@@ -277,7 +315,9 @@ def select_variables(variables: list[dict], use_case: str = "",
 
     Relevant = direct keyword matches first, then variables named in the
     summary, then variables mentioned near use-case keywords in the
-    README. Capped so the snippet stays a snippet.
+    README. Capped so the snippet stays a snippet. Deprecated variables
+    are only suggested when the use case names them directly -- a README
+    co-mention is not enough to recommend a deprecated setting.
     """
     required = [v for v in variables if _is_required(v)]
     if not use_case:
@@ -291,9 +331,17 @@ def select_variables(variables: list[dict], use_case: str = "",
                 seen.add(v["name"])
                 relevant.append(v)
 
-    add([v for v in variables if _relevance(v, _tokens(use_case)) > 0])
-    add(_summary_mentions(variables, summary))
-    add(_readme_related(variables, readme, use_case))
+    use_case_tokens = _tokens(use_case)
+    keyword_matched = {v["name"] for v in variables
+                       if _relevance(v, use_case_tokens) > 0}
+
+    def fresh(cands: list[dict]) -> list[dict]:
+        return [v for v in cands
+                if not _is_deprecated(v) or v["name"] in keyword_matched]
+
+    add([v for v in variables if v["name"] in keyword_matched])
+    add(fresh(_summary_mentions(variables, summary)))
+    add(fresh(_readme_related(variables, readme, use_case)))
     return required, relevant
 
 
@@ -310,7 +358,8 @@ def extract_source(readme: str | None) -> str | None:
 
 def _fmt_default(value) -> str:
     if isinstance(value, str):
-        return value if len(value) <= 40 else value[:37] + "..."
+        v = value if len(value) <= 40 else value[:37] + "..."
+        return f'"{v}"'
     try:
         s = json.dumps(value)
     except (TypeError, ValueError):
@@ -350,11 +399,23 @@ def build_usage_example(parsed: dict, use_case: str = "",
     if required or relevant:
         lines.append("")
     all_vars = required + relevant
+    selected_names = {v["name"] for v in all_vars}
     name_w = max((len(v["name"]) for v in all_vars), default=0)
+
+    def notes_for(v: dict) -> str:
+        notes = []
+        if _is_deprecated(v):
+            notes.append(f"DEPRECATED: {_deprecation_note(v)}")
+        other = _conflicts_with(v)
+        if other and other in selected_names and other != v["name"]:
+            notes.append(f"conflicts with {other} -- use one or the other")
+        return (" -- " + "; ".join(notes)) if notes else ""
+
     for v in required:
         pad = " " * (name_w - len(v["name"]))
         val = _example_for_type(v.get("type"))
-        lines.append(f'  {v["name"]}{pad} = {val}  # TODO: required, no default')
+        lines.append(f'  {v["name"]}{pad} = {val}'
+                     f'  # TODO: required, no default{notes_for(v)}')
     if required and relevant:
         lines.append("")
     if relevant:
@@ -362,10 +423,19 @@ def build_usage_example(parsed: dict, use_case: str = "",
             lines.append(f'  # Relevant to "{use_case}":')
         for v in relevant:
             pad = " " * (name_w - len(v["name"]))
-            val = _example_for_type(v.get("type"))
-            lines.append(f'  {v["name"]}{pad} = {val}'
-                         f'  # default: {_fmt_default(v.get("default"))}'
-                         f' — change to enable')
+            if v.get("type") == "bool":
+                # No honest placeholder for a bool: flipping one the wrong
+                # way is worse than a no-op line, so show the default and
+                # let the caller decide (e.g. some public-access blocks
+                # stay true while others go false for a website).
+                default = v.get("default")
+                val = _fmt_default(default) if default is not None else "false"
+                comment = f"# default: {_fmt_default(default)}{notes_for(v)}"
+            else:
+                val = _example_for_type(v.get("type"))
+                comment = (f"# default: {_fmt_default(v.get('default'))}"
+                           f" — change to enable{notes_for(v)}")
+            lines.append(f'  {v["name"]}{pad} = {val}  {comment}')
     lines.append("}")
 
     if outputs:
