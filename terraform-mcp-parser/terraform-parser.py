@@ -51,6 +51,10 @@ def parse_variables(module_path: str) -> list[dict]:
                 "name": _clean(raw_name),
                 "type": _clean_type(attrs.get("type")),
                 "default": _clean(attrs.get("default")),
+                # `default = null` is the modules' idiom for "optional, omit
+                # to leave unset" -- only a missing default is truly required.
+                # hcl2 keeps the key with value None for explicit nulls.
+                "has_default": "default" in attrs,
                 "description": _clean(attrs.get("description")),
             })
     return variables
@@ -152,6 +156,49 @@ def get_module_details(module_name: str) -> dict:
                          "Run pipeline.py to index it, or check the name "
                          "with search_modules first."}
     return details
+
+
+@mcp.tool()
+def get_usage_example(module_name: str, use_case: str = "") -> dict:
+    """Generate a paste-ready Terraform `module` block for an indexed module.
+
+    Deterministic: variable names, types, and defaults come from the
+    parsed variables.tf, so the snippet can't invent or truncate names.
+    Required variables (no default) are always included; pass use_case
+    (e.g. "host a static website") to also pull in the optional variables
+    relevant to that goal.
+    """
+    from store import get_module_details_store
+    from usage import build_usage_example
+
+    collection = _get_search_collection()
+    details = get_module_details_store(collection, module_name)
+    if details is None:
+        return {"error": f"Module '{module_name}' is not in the index. "
+                         "Run pipeline.py to index it, or check the name "
+                         "with search_modules first."}
+    return {
+        "module_name": module_name,
+        "hcl": build_usage_example(details, use_case=use_case,
+                                   summary=_get_summary_text(collection,
+                                                             module_name)),
+    }
+
+
+def _get_summary_text(collection, module_name: str) -> str:
+    """Best-effort: the module's capability-summary chunk for the snippet
+    header comment. Falls back to the first chunk, then to empty."""
+    try:
+        res = collection.get(where={"module_name": module_name},
+                             include=["documents", "metadatas"])
+        docs = res.get("documents") or []
+        metas = res.get("metadatas") or []
+        for doc, meta in zip(docs, metas):
+            if (meta or {}).get("chunk_kind", "summary") == "summary":
+                return doc
+        return docs[0] if docs else ""
+    except Exception:
+        return ""
 
 
 if __name__ == "__main__":

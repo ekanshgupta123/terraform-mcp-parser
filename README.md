@@ -128,6 +128,7 @@ instances, is there a module for that?"* — and watch the agent call
 | `parse_module(module_path)` | Parse a module dir into structured JSON (dev/testing helper) |
 | `search_modules(query, n_results=5)` | Semantic search over indexed modules — plain language in, ranked modules out |
 | `get_module_details(module_name)` | Full variables/outputs/resource types/README for one module |
+| `get_usage_example(module_name, use_case="")` | Paste-ready Terraform `module` block: real variable names/types/defaults from variables.tf, required vars always included, `use_case` pulls in relevant optionals |
 
 ## Retrieval eval (messy modules)
 
@@ -164,6 +165,7 @@ terraform-mcp-parser/
   summarizer.py          Parsed JSON -> English summary (Anthropic API, index time only)
   embedder.py            Text -> vector (local sentence-transformers, no API key)
   store.py               ChromaDB vector store (local ./chroma_db, zero infra)
+  usage.py               Deterministic usage-example generator (parsed schema -> HCL, no LLM)
   eval/                  Messy-module retrieval eval harness (see eval/README.md)
   sample-summaries.json  Hand-written summaries for testing without API spend
   .env.example           Template: ANTHROPIC_API_KEY + optional overrides
