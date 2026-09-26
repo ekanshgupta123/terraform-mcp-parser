@@ -128,7 +128,7 @@ instances, is there a module for that?"* — and watch the agent call
 | `parse_module(module_path)` | Parse a module dir into structured JSON (dev/testing helper) |
 | `search_modules(query, n_results=5)` | Semantic search over indexed modules — plain language in, ranked modules out |
 | `get_module_details(module_name)` | Full variables/outputs/resource types/README for one module |
-| `get_usage_example(module_name, use_case="")` | Paste-ready Terraform `module` block: real variable names/types/defaults from variables.tf, required vars always included, `use_case` pulls in relevant optionals |
+| `get_usage_example(module_name, use_case="")` | Paste-ready Terraform `module` block from variables.tf: required vars always included, `use_case` pulls in relevant optionals; complex types rendered as example objects, related vars (README co-mentions, summary callouts) flagged |
 
 ## Retrieval eval (messy modules)
 

@@ -166,7 +166,10 @@ def get_usage_example(module_name: str, use_case: str = "") -> dict:
     parsed variables.tf, so the snippet can't invent or truncate names.
     Required variables (no default) are always included; pass use_case
     (e.g. "host a static website") to also pull in the optional variables
-    relevant to that goal.
+    relevant to that goal. Complex types (e.g. list(object({...}))) are
+    rendered as example objects built from the type constraint, and
+    variables the use case depends on (README co-mentions, summary
+    callouts) are flagged alongside.
     """
     from store import get_module_details_store
     from usage import build_usage_example
