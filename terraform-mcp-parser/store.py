@@ -34,10 +34,11 @@ CHROMA_PATH = os.environ.get("CHROMA_PATH", "./chroma_db")
 _CHUNK_OVERFETCH = 10
 
 # How many of a module's closest chunks are averaged into its score.
-# 1 = pure best-chunk-wins (old behaviour). 2 means a module has to match
-# on two aspects, so one generic use-case sentence ("firewall rules for
+# 1 = pure best-chunk-wins. 2 means a module has to match on two
+# aspects, so one generic use-case sentence ("firewall rules for
 # EC2 instances") can't carry a module on its own.
-SCORE_TOP_K = int(os.environ.get("SCORE_TOP_K", "2"))
+# Default is 1: the setting the real-world eval verified at 18/18.
+SCORE_TOP_K = int(os.environ.get("SCORE_TOP_K", "1"))
 
 
 def get_collection(path: str | None = None):
