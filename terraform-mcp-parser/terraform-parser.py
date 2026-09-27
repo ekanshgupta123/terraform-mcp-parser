@@ -169,13 +169,17 @@ def get_usage_example(module_name: str, use_case: str = "") -> dict:
     relevant to that goal. Complex types (e.g. list(object({...}))) are
     rendered as example objects built from the type constraint, and
     variables the use case depends on (README co-mentions, summary
-    callouts) are flagged alongside.
+    callouts, use-case intent such as the policy input a website needs)
+    are flagged alongside. Mutually exclusive website modes (hosting vs
+    redirect-only) are resolved from the use case, and defaults that
+    would silently break it (e.g. S3 public-access blocks under a
+    website) are flagged. The registry version is resolved live when the
+    source is a registry address (x.y.z placeholder if unreachable).
 
-    The snippet surfaces candidate variables; it does not resolve
-    conflicts between them. Mutually exclusive modes (e.g. a website
-    config vs a redirect-only config), deprecated patterns, and which
-    bools to flip are the caller's judgment call -- check the flagged
-    variables against the module docs before applying.
+    The snippet surfaces candidate variables; it does not resolve every
+    conflict between them. Deprecated patterns, README-prose noise, and
+    which remaining bools to flip are the caller's judgment call --
+    check the flagged variables against the module docs before applying.
     """
     from store import get_module_details_store
     from usage import build_usage_example

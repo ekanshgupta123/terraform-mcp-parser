@@ -14,11 +14,17 @@ Checks per case:
   - no empty-object placeholders (`[{}]`, the classic type-check failure)
   - must_include / must_exclude lists encoding reviewed judgments
     (e.g. website hosting must not suggest the deprecated `acl`)
+  - must_include_any: at least one of each group (for judgments that
+    hold across module versions with different variable names)
+  - expect_notes: the rendered line for a variable carries a warning
+    (e.g. the public-read-policy note on source_policy_documents)
 
 Deliberately NOT asserted: judgments that need a reader, not a rule --
-mutually exclusive modes (website_configuration vs the redirect-only
-variable) and README-prose noise (privileged_principal_arns). The tool
-surfaces those candidates; the caller trims them. See the tool docstring.
+README-prose noise (privileged_principal_arns) and which remaining bools
+to flip. The tool surfaces those candidates; the caller trims them. The
+website hosting-vs-redirect mode pair IS resolved deterministically from
+the use case and asserted below; other undeclared mode conflicts remain
+caller judgment. See the tool docstring.
 """
 
 import importlib.util
@@ -54,14 +60,47 @@ CASES = [
             "ignore_public_acls",
             "restrict_public_buckets",
             "s3_object_ownership",
+            # the 403 trap: a website needs a public read policy attached
+            "source_policy_documents",
         ],
         "must_exclude": [
             "acl",  # deprecated by AWS in favor of bucket policies
+            # redirect-only mode, not hosting:
+            "website_redirect_all_requests_to",
             # inputs-table neighbours, not website settings:
             "user_enabled",
             "access_key_enabled",
             "store_access_key_in_ssm",
         ],
+        "expect_notes": {
+            "source_policy_documents": "403",
+            "block_public_policy": "set to false",
+            "restrict_public_buckets": "set to false",
+            "website_configuration": "hosting mode",
+        },
+    },
+    {
+        # The flip side of the website case: redirect mode must surface
+        # the redirect variable and drop the hosting config.
+        "module": "cp-s3-bucket",
+        "use_case": "redirect all website requests to example.com",
+        "must_include": ["website_redirect_all_requests_to"],
+        "must_exclude": ["website_configuration"],
+        "expect_notes": {
+            "website_redirect_all_requests_to": "redirect-only mode",
+        },
+    },
+    {
+        # Non-S3 generality check: the tool must surface an ingress-rules
+        # input for a firewall use case. v5 names it
+        # ingress_with_cidr_blocks, v6 ingress_rules -- the judgment is
+        # "an ingress input is surfaced", not the exact name.
+        "module": "tam-security-group",
+        "use_case": "firewall rules for EC2 instances",
+        "must_include_any": [
+            ["ingress_rules", "ingress_with_cidr_blocks"],
+        ],
+        "must_exclude": [],
     },
 ]
 
@@ -92,9 +131,10 @@ def check_case(case: dict, variables: list[dict], hcl: str) -> list[str]:
         body = None
     if body is None:
         return ["module block not found in generated HCL"]
-    # Skip hcl2's metadata keys and the source line.
+    # Skip hcl2's metadata keys, the source line, and the resolved
+    # registry version pin (not a module variable).
     assigned = {k for k in body
-                if k != "source" and not k.startswith("__")}
+                if k not in ("source", "version") and not k.startswith("__")}
 
     failures = []
     invented = sorted(assigned - var_names)
@@ -108,9 +148,36 @@ def check_case(case: dict, variables: list[dict], hcl: str) -> list[str]:
     for name in case.get("must_include", []):
         if name not in assigned:
             failures.append(f"expected '{name}' in snippet")
+    for group in case.get("must_include_any", []):
+        if not any(name in assigned for name in group):
+            failures.append(f"expected one of {group} in snippet")
     for name in case.get("must_exclude", []):
         if name in assigned:
             failures.append(f"unexpected '{name}' in snippet")
+    for name, substr in case.get("expect_notes", {}).items():
+        lines = hcl.splitlines()
+        start = next((i for i, ln in enumerate(lines)
+                      if re.match(rf"\s*{re.escape(name)}\s*=", ln)), None)
+        if start is None:
+            failures.append(f"expected a line assigning '{name}' for note check")
+            continue
+        # The rendered value may span lines (type-driven objects); the
+        # note lands on the value's last line, so scan the whole value:
+        # the assignment line, deeper-indented continuation lines, and
+        # the closing-bracket line.
+        span = [lines[start]]
+        for ln in lines[start + 1:]:
+            if not ln.strip():
+                break
+            indent = len(ln) - len(ln.lstrip())
+            if indent > 2:
+                span.append(ln)
+                continue
+            if re.match(r"\s*[\]}]", ln):
+                span.append(ln)
+            break
+        if substr not in "\n".join(span):
+            failures.append(f"expected note containing {substr!r} on '{name}'")
     return failures
 
 

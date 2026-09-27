@@ -128,7 +128,7 @@ instances, is there a module for that?"* — and watch the agent call
 | `parse_module(module_path)` | Parse a module dir into structured JSON (dev/testing helper) |
 | `search_modules(query, n_results=5)` | Semantic search over indexed modules — plain language in, ranked modules out |
 | `get_module_details(module_name)` | Full variables/outputs/resource types/README for one module |
-| `get_usage_example(module_name, use_case="")` | Paste-ready Terraform `module` block from variables.tf: required vars always included, `use_case` pulls in relevant optionals; complex types rendered as example objects, related vars (README co-mentions, summary callouts) flagged |
+| `get_usage_example(module_name, use_case="")` | Paste-ready Terraform `module` block from variables.tf: required vars always included, `use_case` pulls in relevant optionals; complex types rendered as example objects; use-case intent rules (e.g. a website pulls in the policy input, hosting-vs-redirect mode resolved, dangerous defaults flagged); registry version resolved live |
 
 ## Retrieval eval (messy modules)
 
@@ -180,11 +180,9 @@ correct module with accurate inputs/outputs.
 
 Sensible next steps:
 
-- **`get_usage_example` tool** — return a ready-to-paste Terraform snippet
-  for a module (the third tool in the original design).
-- **Auto re-indexing** — run the pipeline on git changes (CI hook) so the
-  index never goes stale; the stored `commit_sha` is there for change
-  detection.
+- **Incremental indexing** — track source commit SHAs and skip unchanged
+  modules on re-index so repeat runs don't re-spend Anthropic credits
+  (the stored `commit_sha` is there for change detection).
 - **pgvector** instead of ChromaDB when you want shared/production storage —
   only `store.py` changes.
 - **Remote transport** — serve over streamable HTTP so a whole team shares

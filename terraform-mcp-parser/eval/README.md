@@ -19,9 +19,17 @@ It asserts the snippet parses as HCL, invents no variables, includes every
 required variable, contains no `[{}]` empty-object placeholders, and
 satisfies per-case must-include/must-exclude lists encoding reviewed
 judgments (e.g. website hosting must not suggest the deprecated `acl`).
-Judgments that need a reader rather than a rule -- mutually exclusive
-modes, README-prose noise -- are deliberately not asserted; the tool
-surfaces those candidates and the caller trims them.
+Three cases run: static-website hosting on `cp-s3-bucket` (must surface
+`source_policy_documents` with the 403 warning, must warn on the
+public-access-block defaults, must drop the redirect-only variable),
+redirect mode on the same module (must surface
+`website_redirect_all_requests_to` and drop `website_configuration`),
+and a non-S3 generality check (`tam-security-group` for firewall rules,
+asserting an ingress-rules input is surfaced under either the v5 or v6
+variable name). Judgments that still need a reader rather than a rule --
+README-prose noise like `privileged_principal_arns`, which remaining
+bools to flip -- are deliberately not asserted; the tool surfaces those
+candidates and the caller trims them.
 
 ## How to run
 

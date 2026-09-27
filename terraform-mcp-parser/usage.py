@@ -1,25 +1,34 @@
 """usage.py: deterministic Terraform usage-example generator.
 
 Builds a paste-ready `module` block from a module's PARSED variables --
-no LLM, no API calls. Names, types, defaults, and descriptions come
-straight from variables.tf, so the snippet can't invent variables,
-truncate output names, or hallucinate placeholders (the failure mode of
-asking an LLM to freestyle HCL from a summary).
+no LLM. Names, types, defaults, and descriptions come straight from
+variables.tf, so the snippet can't invent variables, truncate output
+names, or hallucinate placeholders (the failure mode of asking an LLM
+to freestyle HCL from a summary). One best-effort network call resolves
+the registry version pin; everything else is local, and the snippet is
+fully usable when the lookup fails.
 
-Two things make the snippet more than a skeleton:
+Three things make the snippet more than a skeleton:
 
 1. Type-driven values. A `list(object({...}))` variable is rendered as
    an example object built from its type constraint -- field names,
    nesting, and shapes included -- instead of a bare `[]`.
 2. Related variables. Beyond required vars and direct keyword matches,
    the tool pulls in variables the use case depends on: ones named in
-   the module's summary, and ones mentioned near use-case keywords in
-   the README (e.g. the S3 public-access-block settings that a static
-   website needs alongside `website_configuration`).
+   the module's summary, ones mentioned near use-case keywords in the
+   README (e.g. the S3 public-access-block settings that a static
+   website needs alongside `website_configuration`), and ones implied
+   by use-case intent (e.g. a website use case always needs the
+   module's policy input -- without a public read policy the site 403s).
+3. Mode and default warnings. Mutually exclusive modes the module never
+   declares (website hosting vs redirect-only) are resolved from the use
+   case, and defaults that would silently break the use case (S3
+   public-access blocks defaulting true under a website) get flagged.
 """
 
 import json
 import re
+import urllib.request
 
 # Tokens too generic to signal relevance on their own.
 _STOPWORDS = {
@@ -308,20 +317,112 @@ def _conflicts_with(var: dict) -> str | None:
     return m.group(1) if m else None
 
 
+# ---------------------------------------------------------------------------
+# Use-case intent rules.
+#
+# Keyword matching catches variables that *name* the use case, but some
+# dependencies are implied by intent rather than vocabulary.
+# ---------------------------------------------------------------------------
+
+_WEBSITE_TOKENS = {"website", "site", "sites"}
+_HOSTING_TOKENS = {"host", "hosting", "hosted", "serve", "serving", "static"}
+
+
+def _website_intent(use_case_tokens: set[str]) -> bool:
+    """Hosting a website -- as opposed to, say, redirecting to one."""
+    return bool(use_case_tokens & _WEBSITE_TOKENS
+                and use_case_tokens & _HOSTING_TOKENS)
+
+
+def _policy_document_inputs(variables: list[dict]) -> list[dict]:
+    """The module's "attach your own policy" inputs (the CloudPosse-style
+    `source_policy_documents`). A static website is only reachable with a
+    public read policy, so a website use case always wants this knob."""
+    return [v for v in variables
+            if "policy_document" in v["name"]
+            and (v.get("type") or "").startswith("list(")]
+
+
+_POLICY_403_NOTE = ("a static website needs a public read policy -- attach "
+                    "it here, or the site returns 403")
+
+
+# website_configuration (hosting) vs website_redirect_all_requests_to
+# (redirect-only) are mutually exclusive modes with no textual conflict
+# signal in the module metadata, so the generic machinery surfaces both.
+# The use case picks the mode: the loser is dropped and the winner gets a
+# note naming the alternative. When the use case is ambiguous (both or
+# neither intent present), both stay and the caller decides.
+_HOSTING_VAR = "website_configuration"
+_REDIRECT_VAR = "website_redirect_all_requests_to"
+
+
+def _website_mode_filter(variables: list[dict], relevant: list[dict],
+                         use_case_tokens: set[str],
+                         notes: dict[str, str]) -> list[dict]:
+    names = {v["name"] for v in variables}
+    if _HOSTING_VAR not in names or _REDIRECT_VAR not in names:
+        return relevant
+    redirect = "redirect" in use_case_tokens
+    hosting = bool(use_case_tokens & _HOSTING_TOKENS)
+    if redirect and not hosting:
+        keep, drop = _REDIRECT_VAR, _HOSTING_VAR
+        note = ("redirect-only mode -- do not also set website_configuration; "
+                "the two are alternatives")
+    elif hosting and not redirect:
+        keep, drop = _HOSTING_VAR, _REDIRECT_VAR
+        note = ("hosting mode -- do not also set "
+                "website_redirect_all_requests_to; the two are alternatives")
+    else:
+        return relevant
+    if keep in {v["name"] for v in relevant}:
+        notes[keep] = note + (f"; {notes[keep]}" if keep in notes else "")
+    return [v for v in relevant if v["name"] != drop]
+
+
+_PUBLIC_BLOCK_NOTES = {
+    # A static website is public by definition, but these default to true.
+    "block_public_policy": ("defaults to true, which blocks the public bucket "
+                            "policy -- set to false for a public website"),
+    "restrict_public_buckets": ("defaults to true, which blocks public access "
+                                "via policy -- set to false for a public website"),
+}
+
+
+def _public_block_warnings(relevant: list[dict], use_case_tokens: set[str],
+                           notes: dict[str, str]) -> None:
+    """Flag public-access-block settings whose defaults would silently 403
+    a static website."""
+    if not _website_intent(use_case_tokens):
+        return
+    if _HOSTING_VAR not in {v["name"] for v in relevant}:
+        return
+    for v in relevant:
+        text = _PUBLIC_BLOCK_NOTES.get(v["name"])
+        if text and v.get("default") is True and v["name"] not in notes:
+            notes[v["name"]] = text
+
+
 def select_variables(variables: list[dict], use_case: str = "",
                      summary: str = "", readme: str = "",
-                     max_relevant: int = 10) -> tuple[list[dict], list[dict]]:
-    """Split into (required, relevant-optional) variables for the snippet.
+                     max_relevant: int = 10
+                     ) -> tuple[list[dict], list[dict], dict[str, str]]:
+    """Split into (required, relevant-optional, notes) for the snippet.
 
-    Relevant = direct keyword matches first, then variables named in the
-    summary, then variables mentioned near use-case keywords in the
-    README. Capped so the snippet stays a snippet. Deprecated variables
-    are only suggested when the use case names them directly -- a README
-    co-mention is not enough to recommend a deprecated setting.
+    Relevant = direct keyword matches first, then variables implied by
+    use-case intent (e.g. the policy input for a website), then variables
+    named in the summary, then variables mentioned near use-case keywords
+    in the README. Capped so the snippet stays a snippet. Deprecated
+    variables are only suggested when the use case names them directly --
+    a README co-mention is not enough to recommend a deprecated setting.
+
+    `notes` maps variable names to use-case-specific warnings attached to
+    the rendered line (mode alternatives, dangerous defaults).
     """
     required = [v for v in variables if _is_required(v)]
+    notes: dict[str, str] = {}
     if not use_case:
-        return required, []
+        return required, [], notes
     seen = {v["name"] for v in required}
     relevant: list[dict] = []
 
@@ -340,9 +441,21 @@ def select_variables(variables: list[dict], use_case: str = "",
                 if not _is_deprecated(v) or v["name"] in keyword_matched]
 
     add([v for v in variables if v["name"] in keyword_matched])
+    if _website_intent(use_case_tokens):
+        for v in _policy_document_inputs(variables):
+            if v["name"] in seen:
+                # Already selected via keywords -- the 403 guidance still
+                # applies, so attach the note regardless of how it got in.
+                notes.setdefault(v["name"], _POLICY_403_NOTE)
+            elif len(relevant) < max_relevant:
+                seen.add(v["name"])
+                relevant.append(v)
+                notes.setdefault(v["name"], _POLICY_403_NOTE)
     add(fresh(_summary_mentions(variables, summary)))
     add(fresh(_readme_related(variables, readme, use_case)))
-    return required, relevant
+    relevant = _website_mode_filter(variables, relevant, use_case_tokens, notes)
+    _public_block_warnings(relevant, use_case_tokens, notes)
+    return required, relevant, notes
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +467,40 @@ def extract_source(readme: str | None) -> str | None:
     (e.g. source = "terraform-aws-modules/s3-bucket/aws")."""
     m = re.search(r'source\s*=\s*"([^"\n]+)"', readme or "")
     return m.group(1) if m else None
+
+
+_VERSION_CACHE: dict[str, str | None] = {}
+_REGISTRY_TIMEOUT = 5
+
+
+def _resolve_registry_version(source: str | None) -> str | None:
+    """Latest published version for a registry source address
+    ("namespace/name/provider"). One best-effort HTTPS call, cached per
+    process; returns None for non-registry sources or any failure, and
+    the caller keeps the "x.y.z" placeholder in that case."""
+    if not source:
+        return None
+    if source in _VERSION_CACHE:
+        return _VERSION_CACHE[source]
+    version: str | None = None
+    parts = source.strip().split("/")
+    if len(parts) == 3 and "://" not in source:
+        ns, name, provider = parts
+        url = (f"https://registry.terraform.io/v1/modules/"
+               f"{ns}/{name}/{provider}")
+        try:
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "terraform-mcp-parser"})
+            with urllib.request.urlopen(req,
+                                        timeout=_REGISTRY_TIMEOUT) as resp:
+                data = json.load(resp)
+            v = data.get("version")
+            if v:
+                version = str(v)
+        except Exception:
+            version = None
+    _VERSION_CACHE[source] = version
+    return version
 
 
 def _fmt_default(value) -> str:
@@ -379,8 +526,8 @@ def build_usage_example(parsed: dict, use_case: str = "",
     outputs = parsed.get("outputs", []) or []
     readme = parsed.get("readme", "")
 
-    required, relevant = select_variables(variables, use_case,
-                                          summary=summary, readme=readme)
+    required, relevant, notes = select_variables(variables, use_case,
+                                                    summary=summary, readme=readme)
 
     lines: list[str] = []
     if summary:
@@ -392,7 +539,11 @@ def build_usage_example(parsed: dict, use_case: str = "",
     if source:
         lines.append(f'  source = "{source}"')
         if "/" in source and not source.startswith((".", "/")):
-            lines.append('  # version = "x.y.z"  # pin a version')
+            version = _resolve_registry_version(source)
+            if version:
+                lines.append(f'  version = "{version}"')
+            else:
+                lines.append('  # version = "x.y.z"  # pin a version')
     else:
         lines.append('  source = "<MODULE_SOURCE>"  # TODO: set the module source')
 
@@ -403,13 +554,15 @@ def build_usage_example(parsed: dict, use_case: str = "",
     name_w = max((len(v["name"]) for v in all_vars), default=0)
 
     def notes_for(v: dict) -> str:
-        notes = []
+        parts = []
+        if v["name"] in notes:
+            parts.append(notes[v["name"]])
         if _is_deprecated(v):
-            notes.append(f"DEPRECATED: {_deprecation_note(v)}")
+            parts.append(f"DEPRECATED: {_deprecation_note(v)}")
         other = _conflicts_with(v)
         if other and other in selected_names and other != v["name"]:
-            notes.append(f"conflicts with {other} -- use one or the other")
-        return (" -- " + "; ".join(notes)) if notes else ""
+            parts.append(f"conflicts with {other} -- use one or the other")
+        return (" -- " + "; ".join(parts)) if parts else ""
 
     for v in required:
         pad = " " * (name_w - len(v["name"]))
