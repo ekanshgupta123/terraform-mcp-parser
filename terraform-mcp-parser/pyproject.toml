@@ -1,11 +1,12 @@
 [project]
 name = "terraform-mcp-parser"
 version = "0.1.0"
-description = "Add your description here"
+description = "RAG over your private Terraform module library, served as MCP tools: semantic search, module details, and deterministic usage-example generation"
 readme = "README.md"
 authors = [
     { name = "ekanshgupta123", email = "ekanshgupta2003@gmail.com" }
 ]
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.8.0",
@@ -18,7 +19,15 @@ dependencies = [
 
 [project.scripts]
 terraform-mcp-parser = "terraform_mcp_parser:main"
+terraform-mcp-index = "terraform_mcp_parser.pipeline:main"
+
+[project.urls]
+Homepage = "https://github.com/ekanshgupta123/terraform-mcp-parser"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "terraform_mcp_parser"
+module-root = ""

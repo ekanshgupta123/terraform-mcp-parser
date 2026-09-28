@@ -5,8 +5,8 @@ model (all-MiniLM-L6-v2) produces 384-dimensional vectors and downloads
 automatically on first use (~90MB, cached in ~/.cache afterwards).
 
 The SAME model must be used for indexing and for query time -- the
-embedder is shared by pipeline.py (indexing) and terraform-parser.py
-(the search_modules MCP tool).
+embedder is shared by terraform-mcp-index (indexing) and the
+search_modules MCP tool.
 """
 
 import os

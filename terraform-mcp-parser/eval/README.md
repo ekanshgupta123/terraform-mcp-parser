@@ -9,7 +9,7 @@ leftovers, misleading READMEs, overlapping capabilities?**
 
 `eval/tool_eval.py` checks the other end of the loop -- the HCL that
 `get_usage_example` generates -- against the **local index**
-(`CHROMA_PATH`, built by `pipeline.py`):
+(`CHROMA_PATH`, built by `terraform-mcp-index`):
 
 ```bash
 uv run eval/tool_eval.py
@@ -42,7 +42,7 @@ uv run eval/eval.py              # index + evaluate (~$0.10 in Anthropic calls)
 
 `eval.py` needs `ANTHROPIC_API_KEY` in the environment (or `.env`) because
 it summarizes every corpus module with the real LLM — the same path
-`pipeline.py` uses. It exits with a clear error if the key is missing.
+`terraform-mcp-index` uses. It exits with a clear error if the key is missing.
 
 The eval uses its **own** Chroma collection (`terraform_modules_eval`) in
 `eval/.chroma_eval/`. Your real `terraform_modules` collection and

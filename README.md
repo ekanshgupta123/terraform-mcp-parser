@@ -16,14 +16,14 @@ the agent finds the module and shows how to use it.
 Two systems that meet at a vector database:
 
 ```
-INGESTION — run when modules change (pipeline.py)
+INGESTION — run when modules change (terraform-mcp-index)
   parse            summarize (LLM)        embed              store
   .tf files  -->  English summary   -->  vector        -->  ChromaDB
   variables,       what the module        local              local,
   outputs,         DOES, in plain         sentence-          zero infra
   resource types,  language               transformers
 
-SERVING — the MCP server agents call (terraform-parser.py)
+SERVING — the MCP server agents call (terraform-mcp-parser)
   search_modules("private encrypted database")
       --> embed query --> similarity search --> ranked modules
   get_module_details("my-module")
@@ -56,7 +56,7 @@ Billing; that covers hundreds of modules (see [Costs](#costs)).
 # 1. Put modules somewhere, e.g. ../sample-modules/<module-name>/
 #    (each module dir needs variables.tf / outputs.tf / main.tf, README.md optional)
 # 2. Run the pipeline:
-uv run pipeline.py ../sample-modules
+uv run terraform-mcp-index ../sample-modules
 ```
 
 The pipeline parses each module, summarizes it via the Anthropic API,
@@ -71,13 +71,13 @@ module name.
 so you can exercise the pipeline end to end without spending API calls:
 
 ```bash
-uv run pipeline.py --summaries-json sample-summaries.json ../sample-modules
+uv run terraform-mcp-index --summaries-json sample-summaries.json ../sample-modules
 ```
 
 ## Run the MCP server
 
 ```bash
-uv run terraform-parser.py   # stdio transport; keep running
+uv run terraform-mcp-parser   # stdio transport; keep running
 ```
 
 ## Connect a client
@@ -88,10 +88,9 @@ below points at the **same script and the same `chroma_db`**.
 **Claude Code** (terminal):
 
 ```bash
-claude mcp add terraform-parser \
+claude mcp add terraform-mcp-parser \
   -e CHROMA_PATH=/absolute/path/to/terraform-mcp-parser/chroma_db \
-  -- /absolute/path/to/terraform-mcp-parser/.venv/bin/python \
-     /absolute/path/to/terraform-mcp-parser/terraform-parser.py
+  -- /absolute/path/to/terraform-mcp-parser/.venv/bin/terraform-mcp-parser
 ```
 
 **VS Code** (`.vscode/mcp.json` in your workspace):
@@ -101,8 +100,7 @@ claude mcp add terraform-parser \
   "servers": {
     "terraform-parser": {
       "type": "stdio",
-      "command": "/absolute/path/to/terraform-mcp-parser/.venv/bin/python",
-      "args": ["/absolute/path/to/terraform-mcp-parser/terraform-parser.py"],
+      "command": "/absolute/path/to/terraform-mcp-parser/.venv/bin/terraform-mcp-parser",
       "env": {
         "CHROMA_PATH": "/absolute/path/to/terraform-mcp-parser/chroma_db"
       }
@@ -160,12 +158,14 @@ to index, one time.
 
 ```
 terraform-mcp-parser/
-  terraform-parser.py    MCP server + HCL parser (variables, outputs, resource types, README)
-  pipeline.py            Batch ingestion: parse -> summarize -> embed -> store
-  summarizer.py          Parsed JSON -> English summary (Anthropic API, index time only)
-  embedder.py            Text -> vector (local sentence-transformers, no API key)
-  store.py               ChromaDB vector store (local ./chroma_db, zero infra)
-  usage.py               Deterministic usage-example generator (parsed schema -> HCL, no LLM)
+  terraform_mcp_parser/  Installable package
+    server.py      MCP server: search_modules, get_module_details, get_usage_example
+    parser.py      HCL parser (variables, outputs, resource types, README)
+    pipeline.py    Batch ingestion: parse -> summarize -> embed -> store
+    summarizer.py  Parsed JSON -> English summary (Anthropic API, index time only)
+    embedder.py    Text -> vector (local sentence-transformers, no API key)
+    store.py       ChromaDB vector store (local ./chroma_db, zero infra)
+    usage.py       Deterministic usage-example generator (parsed schema -> HCL, no LLM)
   eval/                  Messy-module retrieval eval harness (see eval/README.md)
   sample-summaries.json  Hand-written summaries for testing without API spend
   .env.example           Template: ANTHROPIC_API_KEY + optional overrides
@@ -180,6 +180,9 @@ correct module with accurate inputs/outputs.
 
 Sensible next steps:
 
+- **Publish** — `uv build` + `pip install` verified locally; remaining: push
+  to PyPI, then `mcp-publisher publish` (needs the maintainer's GitHub login)
+  to list on the official MCP registry via `server.json`.
 - **Incremental indexing** — track source commit SHAs and skip unchanged
   modules on re-index so repeat runs don't re-spend Anthropic credits
   (the stored `commit_sha` is there for change detection).

@@ -1,14 +1,72 @@
 # terraform-mcp-parser
 
-The full documentation for this project lives in the **root
-[README.md](../README.md)** (that's what GitHub renders): setup, pipeline
-usage, MCP tools, client configs, costs, and the retrieval eval harness.
+An MCP server that makes your **private, custom Terraform modules** searchable
+by AI agents in plain language. Ask *"is there a module for a private
+encrypted database?"* and get back the right module — even when no file is
+named anything like "database".
 
-Quick links:
+HashiCorp's official Terraform MCP server covers the **public registry**.
+This covers the modules only *you* have: your team's internal library that no
+public tool knows about.
 
-- Setup: `uv sync`, then `cp .env.example .env` and add your
-  `ANTHROPIC_API_KEY`
-- Index modules: `uv run pipeline.py ../sample-modules`
-- Run the server: `uv run terraform-parser.py`
-- Retrieval eval: `uv run eval/generate_corpus.py && uv run eval/eval.py`
-  (see [eval/README.md](eval/README.md))
+## Install
+
+```bash
+pip install terraform-mcp-parser
+# or: uvx terraform-mcp-parser
+```
+
+Requires Python 3.11+.
+
+## Index your modules (one-time per module)
+
+```bash
+export ANTHROPIC_API_KEY=...   # only needed at index time
+terraform-mcp-index /path/to/your/modules
+```
+
+Each subdirectory of `/path/to/your/modules` should be one module
+(`variables.tf`, `outputs.tf`, `main.tf`; `README.md` optional). The pipeline
+parses each module, summarizes it once via the Anthropic API, embeds the
+summary locally, and stores everything in a local ChromaDB (`./chroma_db`,
+zero infrastructure). Re-running is safe — records are replaced per module.
+
+## Connect a client
+
+```json
+{
+  "mcpServers": {
+    "terraform-modules": {
+      "command": "terraform-mcp-parser",
+      "env": { "CHROMA_PATH": "/absolute/path/to/chroma_db" }
+    }
+  }
+}
+```
+
+Then just ask questions in plain language.
+
+## Tools
+
+- `search_modules(query)` — semantic search over your library; returns the
+  best-matching modules with summaries.
+- `get_module_details(module_name)` — every variable (name, type, default,
+  description), outputs, resource types, README.
+- `get_usage_example(module_name, use_case)` — a paste-ready `module` block,
+  generated deterministically from the parsed schema (no invented variables).
+  Registry versions are resolved live.
+- `parse_module(module_path)` — parse a module directory into structured JSON.
+- `ping` — health check.
+
+Query time never touches your `.tf` files and costs nothing: the LLM runs
+once per module at index time; search is pure vector similarity.
+
+## Costs
+
+Indexing one module costs roughly a cent in Anthropic API calls (one
+summarization). A few hundred modules is a few dollars, one time.
+
+## Development
+
+Full docs (setup from source, eval harness, architecture, roadmap) live in the
+[root README](https://github.com/ekanshgupta123/terraform-mcp-parser).

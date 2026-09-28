@@ -12,8 +12,8 @@ everything it walks -- point it at changed dirs, or extend it with
 commit-SHA change detection later).
 
 Usage:
-    uv run pipeline.py [modules_dir]
-    uv run pipeline.py --summaries-json sample-summaries.json [modules_dir]
+    terraform-mcp-index [modules_dir]
+    terraform-mcp-index --summaries-json sample-summaries.json [modules_dir]
 
 Without --summaries-json, each module is summarized via the Anthropic API
 (requires ANTHROPIC_API_KEY in .env). With it, summaries load from a JSON
@@ -22,7 +22,6 @@ without spending API calls.
 """
 
 import argparse
-import importlib.util
 import json
 import subprocess
 import sys
@@ -32,15 +31,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# terraform-parser.py has a hyphen, so it can't be imported normally.
-_spec = importlib.util.spec_from_file_location(
-    "terraform_parser", Path(__file__).parent / "terraform-parser.py")
-tp = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(tp)
-
-from summarizer import summarize_module  # noqa: E402
-from embedder import embed, summary_to_chunks  # noqa: E402
-from store import get_collection, upsert_module  # noqa: E402
+from .parser import parse_module
+from .summarizer import summarize_module
+from .embedder import embed, summary_to_chunks
+from .store import get_collection, upsert_module
 
 
 def git_commit_sha(module_path: Path) -> str | None:
@@ -57,7 +51,7 @@ def git_commit_sha(module_path: Path) -> str | None:
 
 def index_module(module_path: Path, collection, summary: dict | None = None) -> None:
     print(f"Parsing {module_path.name} ...")
-    parsed = tp.parse_module(str(module_path))
+    parsed = parse_module(str(module_path))
 
     if summary is None:
         print(f"  summarizing ({len(parsed['variables'])} vars) ...")

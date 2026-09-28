@@ -2,7 +2,7 @@
 
 This is NOT a retrieval eval (see eval_real.py). It checks the generated
 HCL itself, against the local index -- CHROMA_PATH must point at a
-chroma_db built by pipeline.py:
+chroma_db built by terraform-mcp-index:
 
     uv run eval/tool_eval.py
 
@@ -27,25 +27,18 @@ the use case and asserted below; other undeclared mode conflicts remain
 caller judgment. See the tool docstring.
 """
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
 
 import hcl2
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from store import get_collection, get_module_details_store  # noqa: E402
-from usage import _is_required  # noqa: E402
+from terraform_mcp_parser.store import get_collection, get_module_details_store
+from terraform_mcp_parser.usage import _is_required
 
 
 def _load_tool():
-    spec = importlib.util.spec_from_file_location(
-        "terraform_parser",
-        Path(__file__).resolve().parent.parent / "terraform-parser.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    from terraform_mcp_parser import server as mod
     return mod
 
 
@@ -190,7 +183,7 @@ def main() -> int:
         details = get_module_details_store(collection, case["module"])
         if details is None:
             print(f"SKIP {case['module']!r}: not in the local index "
-                  f"(index it with pipeline.py first)")
+                  f"(index it with terraform-mcp-index first)")
             continue
         res = tool.get_usage_example(case["module"], case["use_case"])
         if "error" in res:

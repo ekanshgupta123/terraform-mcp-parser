@@ -55,14 +55,9 @@ os.environ["CHROMA_PATH"] = str(EVAL_CHROMA_PATH)
 assert Path(os.environ["CHROMA_PATH"]).name != "chroma_db", \
     "eval chroma path guard: must not point at the production chroma_db"
 
-# terraform-parser.py has a hyphen; the sibling modules live one dir up.
-sys.path.insert(0, str(PKG_DIR.parent))
-_spec = importlib.util.spec_from_file_location(
-    "terraform_parser", PKG_DIR.parent / "terraform-parser.py")
-tp = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(tp)
-
-from summarizer import summarize_module  # noqa: E402
+# The project is an installed package now; import it directly.
+from terraform_mcp_parser import parser as tp
+from terraform_mcp_parser.summarizer import summarize_module  # noqa: E402
 from embedder import embed, embed_one, summary_to_chunks  # noqa: E402
 from store import upsert_module, search_modules_store  # noqa: E402
 
