@@ -18,7 +18,21 @@ pip install terraform-mcp-parser
 
 Requires Python 3.11+.
 
-## Index your modules (one-time per module)
+## Setup (recommended)
+
+```bash
+terraform-mcp-setup
+```
+
+An interactive wizard that walks you through the one-time setup: point it
+at the folder holding your Terraform modules, give it an Anthropic API key
+(only needed once, to summarize each module — a few dollars covers hundreds
+of modules), and it indexes everything and prints the exact config to paste
+into Claude Code or VS Code.
+
+## Manual setup (advanced)
+
+If you'd rather run each step yourself:
 
 ```bash
 export ANTHROPIC_API_KEY=...   # only needed at index time

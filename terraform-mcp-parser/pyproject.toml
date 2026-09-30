@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 terraform-mcp-parser = "terraform_mcp_parser:main"
 terraform-mcp-index = "terraform_mcp_parser.pipeline:main"
+terraform-mcp-setup = "terraform_mcp_parser.setup:main"
 
 [project.urls]
 Homepage = "https://github.com/ekanshgupta123/terraform-mcp-parser"

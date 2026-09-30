@@ -1,5 +1,8 @@
 """MCP server exposing the module tools over stdio."""
 
+import os
+import sys
+
 from mcp.server.mcpserver import MCPServer
 
 from . import parser
@@ -118,7 +121,46 @@ def _get_summary_text(collection, module_name: str) -> str:
 
 def main() -> None:
     """Entry point: run the MCP server over stdio."""
+    _check_index_startup()
     mcp.run()
+
+
+def _check_index_startup() -> None:
+    """Log an actionable message (stderr only) when the index is missing
+    or empty, instead of letting the first search fail cryptically.
+
+    The server still starts: ping/parse_module don't need the index, and
+    the search tools already explain the fix per-call. This just makes
+    the problem visible in client logs at launch.
+    """
+    from .store import CHROMA_PATH, COLLECTION_NAME
+
+    path = os.path.abspath(CHROMA_PATH)
+    problem: str | None = None
+    if not os.path.isdir(path):
+        problem = f"index directory not found: {path}"
+    else:
+        try:
+            import chromadb
+
+            # get_collection (not get_or_create): don't create an empty
+            # dir just to report that it's empty.
+            col = chromadb.PersistentClient(path=path).get_collection(
+                COLLECTION_NAME)
+            if col.count() == 0:
+                problem = f"index at {path} is empty (no modules stored)"
+        except Exception:
+            problem = (f"no '{COLLECTION_NAME}' collection in {path} "
+                       f"(nothing has been indexed there)")
+    if problem is not None:
+        sys.stderr.write(
+            f"terraform-mcp-parser: {problem}.\n"
+            "  search_modules / get_module_details / get_usage_example "
+            "won't return anything until you build the index.\n"
+            "  Fix: run `terraform-mcp-setup` and follow the prompts -- "
+            "it indexes your modules and prints the client config.\n"
+        )
+        sys.stderr.flush()
 
 
 if __name__ == "__main__":
